@@ -1,5 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { getAIAssessment } from '../services/geminiService';
 import { Answers } from '../types';
 
@@ -95,6 +97,7 @@ const ReportRenderer: React.FC<{ markdown: string }> = ({ markdown }) => {
 
 
 export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRestart }) => {
+  const reportRef = useRef<HTMLDivElement>(null);
   const [fullReport, setFullReport] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
@@ -105,6 +108,7 @@ export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRe
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState('');
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   useEffect(() => {
     const fetchAssessment = async () => {
@@ -216,6 +220,61 @@ export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRe
   const handlePrint = () => {
       window.print();
   };
+
+  const handleDownloadPdf = async () => {
+      if (!reportRef.current || isDownloadingPdf) return;
+
+      setIsDownloadingPdf(true);
+      const hiddenElements = Array.from(reportRef.current.querySelectorAll<HTMLElement>('.pdf-hidden'));
+      const originalDisplay = hiddenElements.map((el) => el.style.display);
+
+      try {
+          hiddenElements.forEach((el) => {
+              el.style.display = 'none';
+          });
+
+          const canvas = await html2canvas(reportRef.current, {
+              scale: 2,
+              useCORS: true,
+              backgroundColor: '#ffffff',
+              windowWidth: reportRef.current.scrollWidth
+          });
+
+          const imageData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF('p', 'mm', 'a4');
+          const pageWidth = 210;
+          const pageHeight = 297;
+          const margin = 10;
+          const renderWidth = pageWidth - (margin * 2);
+          const renderHeight = (canvas.height * renderWidth) / canvas.width;
+          const availablePageHeight = pageHeight - (margin * 2);
+
+          let heightLeft = renderHeight;
+          let yPosition = margin;
+
+          pdf.addImage(imageData, 'PNG', margin, yPosition, renderWidth, renderHeight);
+          heightLeft -= availablePageHeight;
+
+          while (heightLeft > 0) {
+              pdf.addPage();
+              yPosition = margin - (renderHeight - heightLeft);
+              pdf.addImage(imageData, 'PNG', margin, yPosition, renderWidth, renderHeight);
+              heightLeft -= availablePageHeight;
+          }
+
+          const dateStamp = new Date().toISOString().slice(0, 10);
+          pdf.save(`ai-readiness-report-${dateStamp}.pdf`);
+      } catch (err) {
+          console.error('Failed to generate PDF:', err);
+          setCopyFeedback('PDF export failed. Try Print / Save PDF.');
+          setTimeout(() => setCopyFeedback(''), 4000);
+      } finally {
+          hiddenElements.forEach((el, index) => {
+              el.style.display = originalDisplay[index];
+          });
+          setIsDownloadingPdf(false);
+      }
+  };
   
   const getTeaser = (report: string) => {
       if (!report) return '';
@@ -248,7 +307,17 @@ export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRe
                     </div>
                 </div>
 
-                <div className="flex flex-wrap gap-4 mb-6 justify-center sm:justify-end">
+                <div className="flex flex-wrap gap-4 mb-6 justify-center sm:justify-end pdf-hidden">
+                    <button
+                        onClick={handleDownloadPdf}
+                        disabled={isDownloadingPdf}
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-wait focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition"
+                    >
+                        <svg className="mr-2 -ml-1 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16v-8m0 8l-3-3m3 3l3-3M4 17a2 2 0 002 2h12a2 2 0 002-2" />
+                        </svg>
+                        {isDownloadingPdf ? 'Generating PDF...' : 'Download PDF'}
+                    </button>
                     <button
                         onClick={handleCopyReport}
                         className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition"
@@ -363,7 +432,7 @@ export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRe
 
   return (
     <div className="w-full max-w-3xl mx-auto p-4 sm:p-6 animate-fade-in">
-      <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-xl print:shadow-none print:border-none">
+      <div ref={reportRef} className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-xl print:shadow-none print:border-none">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-gray-900">Your AI Readiness Score</h2>
           <p className="text-gray-500 mt-2">You've completed the assessment. Here's how you scored.</p>
