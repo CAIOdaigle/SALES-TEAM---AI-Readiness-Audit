@@ -1,112 +1,77 @@
+import React, { useState } from 'react';
+import { CompanyContext as CompanyContextType, Answers, Notes, AuditResult } from './types';
+import CompanyContext from './components/CompanyContext';
+import Survey from './components/Survey';
+import Results from './components/Results';
+import { getAIAssessment } from './services/geminiService';
+import { Loader2 } from 'lucide-react';
 
-import React, { useState, useCallback } from 'react';
-import { SURVEY_QUESTIONS, MAX_SCORE } from './constants';
-import { Answers, Question } from './types';
-import { ProgressBar } from './components/ProgressBar';
-import { QuestionCard } from './components/QuestionCard';
-import { Results } from './components/Results';
+type AppState = 'context' | 'survey' | 'loading' | 'results';
 
-const App: React.FC = () => {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [answers, setAnswers] = useState<Answers>({});
-  const [showResults, setShowResults] = useState(false);
-  const [score, setScore] = useState(0);
+export default function App() {
+  const [appState, setAppState] = useState<AppState>('context');
+  const [companyContext, setCompanyContext] = useState<CompanyContextType | null>(null);
+  const [result, setResult] = useState<AuditResult | null>(null);
+  const [narrative, setNarrative] = useState<string>('');
 
-  const handleAnswerChange = useCallback((id: string, value: string) => {
-    setAnswers(prev => ({ ...prev, [id]: value }));
-  }, []);
+  const handleStart = (context: CompanyContextType) => {
+    setCompanyContext(context);
+    setAppState('survey');
+  };
 
-  const handleNext = () => {
-    if (currentStep < SURVEY_QUESTIONS.length - 1) {
-      setCurrentStep(currentStep + 1);
+  const handleCompleteSurvey = async (answers: Answers, notes: Notes) => {
+    if (!companyContext) return;
+    
+    setAppState('loading');
+    try {
+      const { result: auditResult, narrative: aiNarrative } = await getAIAssessment(answers, notes, companyContext);
+      setResult(auditResult);
+      setNarrative(aiNarrative);
+      setAppState('results');
+    } catch (error) {
+      console.error('Error getting assessment:', error);
+      alert('Failed to generate assessment. Please try again.');
+      setAppState('survey');
     }
   };
 
-  const handlePrev = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-    }
+  const handleReset = () => {
+    setCompanyContext(null);
+    setResult(null);
+    setNarrative('');
+    setAppState('context');
   };
-
-  const calculateScore = useCallback(() => {
-    let totalScore = 0;
-    SURVEY_QUESTIONS.forEach(question => {
-      if (question.type === 'radio') {
-        const answer = answers[question.id];
-        if (answer) {
-          const option = question.options?.find(opt => opt.text === answer);
-          if (option) {
-            totalScore += option.score;
-          }
-        }
-      }
-    });
-    return totalScore;
-  }, [answers]);
-
-
-  const handleSubmit = () => {
-    const finalScore = calculateScore();
-    setScore(finalScore);
-    setShowResults(true);
-  };
-  
-  const handleRestart = () => {
-    setCurrentStep(0);
-    setAnswers({});
-    setShowResults(false);
-    setScore(0);
-  }
-
-  const currentQuestion: Question = SURVEY_QUESTIONS[currentStep];
-
-  const renderHeader = () => (
-    <div className="text-center mb-8 max-w-3xl mx-auto">
-      <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-        Practical AI Assessment
-      </h1>
-      <p className="mt-4 text-lg text-gray-600">
-        This brief assessment helps us tailor the session to your organization's AI journey.
-      </p>
-    </div>
-  );
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 sm:p-6 transition-colors duration-500">
-      <style>{`
-        .animate-fade-in {
-          animation: fadeIn 0.5s ease-in-out;
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-      <main className="w-full">
-        {showResults ? (
-          <Results score={score} maxScore={MAX_SCORE} answers={answers} onRestart={handleRestart} />
-        ) : (
-          <div className="w-full max-w-2xl mx-auto">
-            {renderHeader()}
-            <ProgressBar current={currentStep} total={SURVEY_QUESTIONS.length} />
-            <QuestionCard
-              key={currentQuestion.id}
-              question={currentQuestion}
-              value={answers[currentQuestion.id] || ''}
-              onChange={handleAnswerChange}
-              onNext={handleNext}
-              onPrev={handlePrev}
-              onSubmit={handleSubmit}
-              isFirst={currentStep === 0}
-              isLast={currentStep === SURVEY_QUESTIONS.length - 1}
-              questionNumber={currentStep + 1}
-              totalQuestions={SURVEY_QUESTIONS.length}
-            />
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      <header className="bg-slate-900 text-white py-4 px-8 shadow-md">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="font-bold text-xl tracking-tight">ChiefAIOfficer.com</div>
+          <div className="text-sm font-medium text-slate-400">AI Readiness Audit Tool</div>
+        </div>
+      </header>
+
+      <main>
+        {appState === 'context' && (
+          <CompanyContext onStart={handleStart} />
+        )}
+        
+        {appState === 'survey' && (
+          <Survey onComplete={handleCompleteSurvey} />
+        )}
+
+        {appState === 'loading' && (
+          <div className="flex flex-col items-center justify-center min-h-[60vh]">
+            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+            <h2 className="text-2xl font-semibold text-slate-900 mb-2">Analyzing Results...</h2>
+            <p className="text-slate-500">Generating your personalized AI strategy scorecard.</p>
           </div>
+        )}
+
+        {appState === 'results' && result && (
+          <Results result={result} narrative={narrative} onReset={handleReset} />
         )}
       </main>
     </div>
   );
-};
-
-export default App;
+}
