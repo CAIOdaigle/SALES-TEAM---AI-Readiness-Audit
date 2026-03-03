@@ -221,6 +221,44 @@ export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRe
       window.print();
   };
 
+  const saveTextOnlyPdf = () => {
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const margin = 12;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const usableWidth = pageWidth - margin * 2;
+      const lineHeight = 6;
+      const lines = fullReport
+        .replace(/\r/g, '')
+        .split('\n')
+        .map((line) => line.replace(/^###\s*/, '').replace(/\*\*/g, '').trim());
+
+      let y = margin;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(16);
+      pdf.text('AI Readiness Assessment Report', margin, y);
+      y += 10;
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+
+      for (const rawLine of lines) {
+          const safeLine = rawLine.length > 0 ? rawLine : ' ';
+          const wrapped = pdf.splitTextToSize(safeLine, usableWidth) as string[];
+
+          if (y + wrapped.length * lineHeight > pageHeight - margin) {
+              pdf.addPage();
+              y = margin;
+          }
+
+          pdf.text(wrapped, margin, y);
+          y += wrapped.length * lineHeight;
+      }
+
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      pdf.save(`ai-readiness-report-${dateStamp}.pdf`);
+  };
+
   const handleDownloadPdf = async () => {
       if (!reportRef.current || isDownloadingPdf) return;
 
@@ -266,8 +304,15 @@ export const Results: React.FC<ResultsProps> = ({ score, maxScore, answers, onRe
           pdf.save(`ai-readiness-report-${dateStamp}.pdf`);
       } catch (err) {
           console.error('Failed to generate PDF:', err);
-          setCopyFeedback('PDF export failed. Try Print / Save PDF.');
-          setTimeout(() => setCopyFeedback(''), 4000);
+          try {
+              saveTextOnlyPdf();
+              setCopyFeedback('Downloaded fallback PDF.');
+              setTimeout(() => setCopyFeedback(''), 4000);
+          } catch (fallbackErr) {
+              console.error('Fallback PDF generation failed:', fallbackErr);
+              setCopyFeedback('PDF export failed. Try Print / Save PDF.');
+              setTimeout(() => setCopyFeedback(''), 4000);
+          }
       } finally {
           hiddenElements.forEach((el, index) => {
               el.style.display = originalDisplay[index];
