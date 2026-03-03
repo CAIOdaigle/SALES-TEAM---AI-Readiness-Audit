@@ -18,6 +18,50 @@ export default function Results({ result, narrative, onReset }: Props) {
 
   const displayIndustry = result.companyContext.customIndustry || result.companyContext.industry;
 
+  const saveTextOnlyPdf = () => {
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const margin = 12;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const usableWidth = pdf.internal.pageSize.getWidth() - margin * 2;
+      const lineHeight = 6;
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const plainNarrative = narrative
+        .replace(/\r/g, '')
+        .replace(/[#*_`>-]/g, '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const lines = [
+        `AI Readiness Audit - ${result.companyContext.companyName}`,
+        `Industry: ${displayIndustry}`,
+        `Overall Score: ${result.overallScore}`,
+        `Tier: ${result.overallTier}`,
+        `Generated: ${new Date().toLocaleDateString()}`,
+        '',
+        ...plainNarrative
+      ];
+
+      let y = margin;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+
+      for (const rawLine of lines) {
+          const safeLine = rawLine.length > 0 ? rawLine : ' ';
+          const wrapped = pdf.splitTextToSize(safeLine, usableWidth) as string[];
+
+          if (y + wrapped.length * lineHeight > pageHeight - margin) {
+              pdf.addPage();
+              y = margin;
+          }
+
+          pdf.text(wrapped, margin, y);
+          y += wrapped.length * lineHeight;
+      }
+
+      pdf.save(`${result.companyContext.companyName.replace(/\s+/g, '_')}_AI_Readiness_Audit_${dateStamp}.pdf`);
+  };
+
   const handleDownloadPdf = async () => {
     if (!scorecardRef.current || !narrativeRef.current) return;
 
@@ -50,7 +94,13 @@ export default function Results({ result, narrative, onReset }: Props) {
       pdf.save(`${result.companyContext.companyName.replace(/\s+/g, '_')}_AI_Readiness_Audit.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('Failed to generate PDF. Please try again.');
+      try {
+        saveTextOnlyPdf();
+        alert('Primary PDF export failed. Downloaded text-only PDF fallback.');
+      } catch (fallbackError) {
+        console.error('Fallback PDF generation failed:', fallbackError);
+        alert('Failed to generate PDF. Please try again.');
+      }
     }
   };
 
