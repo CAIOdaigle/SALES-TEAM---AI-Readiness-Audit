@@ -1,28 +1,22 @@
-import { GoogleGenAI } from "@google/genai";
 import { Answers, Question } from '../types';
 import { SURVEY_QUESTIONS } from '../constants';
+
+const WORKER_URL = 'https://gemini-proxy.askai.workers.dev';
 
 export async function getAIAssessment(
   score: number,
   maxScore: number,
   answers: Answers
 ): Promise<string> {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API_KEY environment variable is not set");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-
   const relevantAnswers: { question: Question; answer: string }[] = [];
   for (const question of SURVEY_QUESTIONS) {
-      if (question.type === 'radio' && answers[question.id]) {
-          const answerText = answers[question.id];
-          const option = question.options?.find(o => o.text === answerText);
-          if (option) {
-              relevantAnswers.push({ question, answer: answerText });
-          }
+    if (question.type === 'radio' && answers[question.id]) {
+      const answerText = answers[question.id];
+      const option = question.options?.find(o => o.text === answerText);
+      if (option) {
+        relevantAnswers.push({ question, answer: answerText });
       }
+    }
   }
 
   const prompt = `
@@ -50,11 +44,18 @@ export async function getAIAssessment(
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
+    const response = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
     });
-    return response.text;
+
+    if (!response.ok) {
+      throw new Error(`Worker responded with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.text;
   } catch (error) {
     console.error("Error generating AI assessment:", error);
     return "There was an error generating your AI-powered feedback. Please try again later.";
